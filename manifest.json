@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "DesPhila: Desenrolador de Relatorios do PHILA",
+  "version": "0.1.2",
+  "description": "Consolida atividades, feedbacks e presencas das turmas selecionadas pelo supervisor.",
+  "permissions": ["storage", "tabs", "scripting"],
+  "icons": {
+    "16": "assets/icon16.png",
+    "48": "assets/icon48.png",
+    "128": "assets/icon128.png"
+  },
+  "host_permissions": [
+    "https://phila.nescon.medicina.ufmg.br/*",
+    "https://ava.nescon.medicina.ufmg.br/*",
+    "https://*.nescon.medicina.ufmg.br/*",
+    "https://lti.mconf.rnp.br/*",
+    "https://*.mconf.rnp.br/*",
+    "https://data-confweb-prd.s3.sa-east-1.amazonaws.com/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "DesPhila: Desenrolador de Relatorios do PHILA",
+    "default_icon": {
+      "16": "assets/icon16.png",
+      "48": "assets/icon48.png",
+      "128": "assets/icon128.png"
+    },
+    "default_popup": "src/popup.html"
+  }
+}

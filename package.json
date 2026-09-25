@@ -1,0 +1,11 @@
+{
+  "name": "desphila",
+  "version": "0.1.2",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "test:browser-pdf": "node scripts/test-pdf-browser.mjs",
+    "package:extension": "bash scripts/package-extension.sh"
+  }
+}

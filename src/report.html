@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Relatório PHILA</title>
+    <link rel="stylesheet" href="report.css" />
+  </head>
+  <body>
+    <header>
+      <div>
+        <p class="eyebrow">SUPERVISÃO PMMFC</p>
+        <h1 id="course-code">Relatório PHILA</h1>
+        <p id="course-name"></p>
+      </div>
+      <div class="summary" id="summary"></div>
+    </header>
+    <main>
+      <section class="notice">
+        <strong>Inventário do curso</strong>
+        <span>Estados ausentes permanecem “Sem evidência”. Recuperação e reoferta devem ser interpretadas conforme a situação de cada aluno.</span>
+      </section>
+      <section class="sync-scope" aria-labelledby="sync-scope-title">
+        <h2 id="sync-scope-title">Turmas que serão sincronizadas</h2>
+        <p><strong>Os dados não são atualizados automaticamente.</strong> Selecione somente as turmas necessárias e inicie cada coleta manualmente. Reduzir o escopo evita sobrecarregar o Moodle e o RNP.</p>
+        <div id="group-selection" class="group-selection"></div>
+        <button id="save-groups" type="button">Aplicar seleção de turmas</button>
+        <p id="group-selection-status" role="status"></p>
+      </section>
+      <section class="actions collection-hub" aria-labelledby="collection-title">
+        <div class="collection-statuses">
+          <h2 id="collection-title">Entregas, tentativas e presenças</h2>
+          <p id="moodle-status" class="status-line">Atividades ainda não coletadas.</p>
+          <p id="moodle-age" class="age-indicator">Atividades: nunca coletadas.</p>
+          <p id="rnp-status" class="status-line">RNP ainda não coletado.</p>
+          <p id="rnp-age" class="age-indicator">RNP: nunca coletado.</p>
+        </div>
+        <div class="collection-buttons">
+          <button id="collect-moodle" type="button">Coletar atividades</button>
+          <button id="stop-moodle" type="button" disabled>Parar após consulta atual</button>
+          <button id="collect-rnp" type="button">Coletar RNP</button>
+          <button id="export-moodle" type="button" disabled>Exportar CSV</button>
+        </div>
+      </section>
+      <p>A coleta é salva a cada consulta. Mantenha esta aba aberta. Os alunos são os encontrados nas atividades; a lista ainda não constitui conferência independente da matrícula.</p>
+      <p>Na análise de pendências, marque as atividades que já deveriam ter sido concluídas. Por padrão, a listagem mostrará somente alunos com pendências explícitas. Confira a mensagem pré-preenchida antes de enviá-la pelo aplicativo WhatsApp ou pelo navegador.</p>
+      <p>RNP: o cruzamento usa nome completo, desconsiderando acentos e maiúsculas. “Não localizado pelo nome” é marcado como pendência; confira possíveis diferenças de cadastro e sessões A/B que atendam subgrupos diferentes.</p>
+      <div id="moodle-results"></div>
+      <section>
+        <h2>Notas e feedbacks</h2>
+        <label for="evaluation-scope">Exportar do curso ou atividade:</label>
+        <select id="evaluation-scope"></select>
+        <p class="field-help">A lista contém somente tarefas, questionários e diários. Links, páginas, chats e acessos externos não possuem notas ou feedbacks exportáveis neste relatório.</p>
+        <div class="actions">
+          <button id="evaluation-start">Coletar / retomar pendências</button>
+          <button id="evaluation-refresh">Nova coleta atualizada</button>
+          <button id="evaluation-stop" disabled>Parar após consulta atual</button>
+          <button id="evaluation-export" disabled>Exportar notas e feedbacks CSV</button>
+          <button id="evaluation-package" disabled>Baixar planilha + PDFs (ZIP)</button>
+        </div>
+        <p id="evaluation-status" class="status-line" role="status"></p>
+        <p id="evaluation-age" class="age-indicator">Notas e feedbacks: nunca coletados.</p>
+        <p>Mantenha esta aba aberta. A coleta é salva a cada consulta. Inclui avaliações atuais de tarefas e diários e tentativas acessíveis de questionários, não o histórico de edições. Tipos sem coletor e falhas aparecem como pendências no arquivo. Notas vazias não significam zero.</p>
+        <p>PDF: comentários publicados aparecem por página; marcações visuais são preservadas no documento. Rascunhos não são consultados. O ZIP baixa somente PDFs já disponibilizados pelo Moodle, até 20 MiB por arquivo e 100 MiB por pacote. Sem OCR ou envio a serviços externos. Os arquivos contêm dados pessoais.</p>
+        <p>Validação PDF: testes com exemplos sintéticos concluídos; conferência com uma anotação real pendente da disponibilização pelo supervisor. Isso não impede a exportação das notas e dos demais feedbacks.</p>
+      </section>
+      <details class="audit-details">
+        <summary>Verificação: sessões e registros de presença RNP</summary>
+        <p>Detalhamento técnico para conferência. A ausência na relação não confirma falta.</p>
+        <div id="rnp-breakdown" class="rnp-breakdown" hidden></div>
+        <section aria-labelledby="groups-title">
+          <h2 id="groups-title">Turmas incluídas</h2>
+          <div id="groups" class="groups"></div>
+        </section>
+      </details>
+    </main>
+    <footer class="app-footer"><a href="https://github.com/hpflatorre" target="_blank" rel="noreferrer">hpflatorre</a><span>Licença MIT</span></footer>
+    <dialog id="session-expired-dialog">
+      <h2>Sessão do PHILA expirada</h2>
+      <p>A plataforma não está mais autenticada. Abra uma nova guia do PHILA, faça login novamente e depois reinicie a coleta.</p>
+      <div class="dialog-actions"><button id="open-phila-login" type="button">Abrir login do PHILA</button><button id="close-session-dialog" class="secondary" type="button">Fechar</button></div>
+    </dialog>
+    <script type="module" src="report.js"></script>
+  </body>
+</html>

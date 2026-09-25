@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Relatórios PHILA</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">SUPERVISÃO PMMFC</p>
+      <h1>DesPhila: Desenrolador de Relatórios do PHILA</h1>
+      <p class="description">Relatórios das turmas selecionadas pelo supervisor</p>
+      <button id="connect" type="button">Conectar</button>
+      <section id="debug-tools" class="debug-tools" aria-labelledby="status-title" hidden>
+        <h2 id="status-title">Diagnóstico de sessões</h2>
+        <ul id="status-list" aria-live="polite"></ul>
+        <button id="refresh" class="secondary" type="button">Verificar conexões</button>
+        <button id="discover" class="secondary" type="button">Mapear turmas</button>
+        <button id="discover-moodle" class="secondary" type="button">Mapear atividades</button>
+      </section>
+      <section class="course-selection" aria-labelledby="course-title">
+        <label id="course-title" for="course">Curso do relatório</label>
+        <select id="course">
+          <option value="">Selecione um curso…</option>
+        </select>
+        <p id="course-detail" class="course-detail"></p>
+      </section>
+      <button id="open-report" type="button">Abrir relatório</button>
+      <p id="result" class="result" aria-live="polite"></p>
+    </main>
+    <footer><a href="https://github.com/hpflatorre" target="_blank" rel="noreferrer">hpflatorre</a><span>MIT</span></footer>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
