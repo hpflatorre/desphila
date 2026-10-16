@@ -80,6 +80,53 @@ export async function readMoodle({ courseId, activity, group, groups, evaluation
       }
     }
   }
+  // Collaborative group wiki: every author in the history of the group's pages has a record.
+  // The history also lists staff edits, so the report attaches these records only to students found elsewhere.
+  async function readWiki() {
+    const view = new URL('mod/wiki/view.php', root);
+    view.searchParams.set('id', activity.activityId);
+    view.searchParams.set('group', group.id);
+    const doc = await get(view.href);
+    if (doc.querySelector('select[name="uid"]')) throw new Error('Wiki individual sem coletor');
+    if (doc.querySelector('select[name="group"]')?.value !== String(group.id)) throw new Error('Filtro de grupo não confirmado');
+    const pageIds = node => [...node.querySelectorAll('a[href*="pageid="]')].map(a => new URL(a.getAttribute('href'), root))
+      .filter(u => u.origin === location.origin && u.pathname.startsWith('/cepm/mod/wiki/')).map(u => u.searchParams.get('pageid')).filter(id => /^\d+$/.test(id || ''));
+    const first = pageIds(doc)[0];
+    if (!first) throw new Error('Página da wiki da turma não identificada');
+    const map = await get(`${root}mod/wiki/map.php?pageid=${first}&option=5`);
+    const pages = [...new Set([first, ...pageIds(map.querySelector('#region-main') || map)])];
+    const authors = new Map();
+    let fetched = 0;
+    for (const pageId of pages) {
+      for (let page = 0; ; page++) {
+        if (++fetched > 100) throw new Error('Paginação inconclusiva');
+        const history = await get(`${root}mod/wiki/history.php?pageid=${pageId}&page=${page}`);
+        const table = history.querySelector('#region-main table');
+        if (history.body.id !== 'page-mod-wiki-history' || !table) throw new Error('Histórico da wiki não reconhecido');
+        let date = '';
+        for (const row of table.querySelectorAll('tbody tr')) {
+          date = text(row.querySelector('.wiki_histdate')) || date;
+          const links = [...row.querySelectorAll('a[href*="/user/view.php"]')];
+          const userId = links.map(a => new URL(a.getAttribute('href'), root).searchParams.get('id')).find(id => /^\d+$/.test(id || ''));
+          if (!userId) continue;
+          const time = [...row.cells].map(text).map(value => value.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i)).find(Boolean);
+          const hour = time ? (time[3] ? Number(time[1]) % 12 + (/PM/i.test(time[3]) ? 12 : 0) : Number(time[1])) : null;
+          const cell = history.createElement('td');
+          cell.textContent = hour === null ? date : `${date} ${hour}:${time[2]}`;
+          const editedAt = timestamp(cell);
+          const author = authors.get(userId) || { userId, name: '', edits: 0, submittedAt: '' };
+          author.name ||= links.map(a => a.querySelector('[title]')?.getAttribute('title') || text(a)).find(Boolean) || '';
+          author.edits++;
+          if (editedAt > author.submittedAt) author.submittedAt = editedAt;
+          authors.set(userId, author);
+        }
+        const hasNext = [...history.querySelectorAll('.paging a[href],.pagination a[href]')].some(a => Number(new URL(a.getAttribute('href'), root).searchParams.get('page')) === page + 1);
+        if (!hasNext) break;
+      }
+    }
+    const records = [...authors.values()].map(({ edits, ...author }) => ({ ...author, status: 'recorded', evidence: `${edits} ${edits === 1 ? 'edição' : 'edições'} no histórico da wiki da turma` }));
+    return { records, evaluationRows: [], pages: fetched, complete: true, contributorsOnly: true };
+  }
   try {
     if (!activity) {
       const doc = await get(`${root}report/progress/index.php?course=${encodeURIComponent(courseId)}`);
@@ -89,7 +136,8 @@ export async function readMoodle({ courseId, activity, group, groups, evaluation
       return { groups: found };
     }
     const type = activity.type;
-    if (!['assign', 'quiz', 'diary'].includes(type)) throw new Error('Tipo sem coletor Moodle');
+    if (!['assign', 'quiz', 'diary', 'wiki'].includes(type)) throw new Error('Tipo sem coletor Moodle');
+    if (type === 'wiki') return await readWiki();
     const url = new URL(`mod/${type}/${type === 'assign' ? 'view' : 'report'}.php`, root);
     url.searchParams.set('id', activity.activityId);
     url.searchParams.set('group', group.id);
@@ -129,6 +177,8 @@ export async function readMoodle({ courseId, activity, group, groups, evaluation
           if (/^\d+$/.test(userId) && !records.some(r => r.userId === userId)) records.push({ userId, name: '', status: 'recorded', evidence: 'Registro no diário', submittedAt });
         }
         if (!entries.length && !doc.body.id.includes('diary-report')) throw new Error('Relatório do diário não reconhecido');
+      } else if (type === 'assign' && !doc.querySelector('#submissions') && doc.body.id === 'page-mod-assign-grading' && /^(Nada a ser mostrado|Nothing to display)$/.test(text(doc.querySelector('.gradingtable > .alert')))) {
+        // Moodle replaces the table with this notice when the confirmed group has no participants (e.g. restricted recovery tasks).
       } else {
         const table = doc.querySelector(type === 'assign' ? '#submissions' : '#attempts');
         if (!table) throw new Error('Tabela não encontrada; resultado indeterminado');

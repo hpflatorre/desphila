@@ -2,7 +2,20 @@
 export async function resolveStudentDestination({ activity, group, userId }) {
   const root = `${location.origin}/cepm/`;
   const type = activity.type;
-  if (!['assign', 'quiz', 'diary'].includes(type) || !/^\d+$/.test(String(userId))) throw new Error('Destino inválido');
+  if (!['assign', 'quiz', 'diary', 'wiki'].includes(type) || !/^\d+$/.test(String(userId))) throw new Error('Destino inválido');
+  if (type === 'wiki') {
+    // A collaborative wiki has no per-student page; open the group's edit history instead.
+    const view = new URL('mod/wiki/view.php', root);
+    view.searchParams.set('id', activity.activityId);
+    view.searchParams.set('group', group.id);
+    const response = await fetch(view, { credentials: 'same-origin', signal: AbortSignal.timeout(45000) });
+    if (!response.ok) throw new Error(`Moodle respondeu HTTP ${response.status}`);
+    const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+    if (/\/login\/|\/sso\//i.test(response.url) || doc.querySelector('#login')) throw new Error('Sessão expirada. Abra o Moodle autenticado.');
+    if (doc.querySelector('select[name="group"]')?.value !== String(group.id)) throw new Error('Filtro de turma não confirmado');
+    const pageId = [...doc.querySelectorAll('a[href*="/mod/wiki/"][href*="pageid="]')].map(a => new URL(a.getAttribute('href'), root).searchParams.get('pageid')).find(id => /^\d+$/.test(id || ''));
+    return { url: pageId ? `${root}mod/wiki/history.php?pageid=${pageId}` : view.href, individual: false };
+  }
   const url = new URL(`mod/${type}/${type === 'assign' ? 'view' : 'report'}.php`, root);
   url.searchParams.set('id', activity.activityId);
   if (group?.id) url.searchParams.set('group', group.id);

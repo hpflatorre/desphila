@@ -1,6 +1,7 @@
 import { ORIGINS } from "./lib/config.js";
 import { resolveStudentDestination } from './lib/navigation-reader.js';
 import { parseRnpParticipants, summarizeRnpAttendance } from "./lib/rnp-parser.js";
+import { engagementDataUrl, summarizeRnpEngagement } from "./lib/rnp-engagement.js";
 import { readMoodle } from './lib/moodle-reader.js';
 import { readFeedbackDetail } from './lib/feedback-reader.js';
 import { readPdfAnnotations, readPublishedPdf } from './lib/pdf-reader.js';
@@ -45,6 +46,49 @@ async function waitForTabComplete(tabId) {
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   throw new Error("A página não terminou de carregar em 45 segundos.");
+}
+
+const MOODLE_LOGIN_URL = /\/login\/|\/sso\/|selectsource|as_login/i;
+const isAuthenticatedMoodleUrl = (url) => url?.startsWith(`${ORIGINS.moodle}/`) && !MOODLE_LOGIN_URL.test(url);
+
+// Collectors run inside a Moodle tab to reuse its cookies; reopen one instead of failing when it was closed.
+async function ensureMoodleTab(courseUrl) {
+  const tabs = await matchingTabs(ORIGINS.moodle);
+  const existing = tabs.find((tab) => tab.status === "complete" && isAuthenticatedMoodleUrl(tab.url)) || tabs[0];
+  if (existing) return existing;
+  const created = await chrome.tabs.create({ url: courseUrl || `${ORIGINS.moodle}/cepm/my/`, active: false });
+  const tab = await waitForTabComplete(created.id);
+  if (isAuthenticatedMoodleUrl(tab.url)) return tab;
+  await chrome.tabs.remove(tab.id).catch(() => {});
+  throw new Error("Sessão expirada. Abra o Moodle autenticado.");
+}
+
+async function runInMoodle(courseUrl, func, args) {
+  for (let attempt = 0; ; attempt++) {
+    const tab = await ensureMoodleTab(courseUrl);
+    try {
+      const [execution] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "ISOLATED", func, args });
+      return execution.result;
+    } catch (error) {
+      // The tab may be closed or navigated mid-query; the second attempt resolves a fresh one.
+      if (attempt || !/Frame with ID|No tab with id|was removed|cannot be scripted|Cannot access/i.test(error.message)) throw error;
+    }
+  }
+}
+
+async function checkMoodleSession() {
+  const selected = await getSelectedCourse().catch(() => null);
+  const loginUrl = selected?.course.url || `${ORIGINS.moodle}/cepm/my/`;
+  try {
+    const authenticated = await runInMoodle(loginUrl, async () => {
+      const response = await fetch(`${location.origin}/cepm/my/`, { credentials: "same-origin" });
+      const doc = new DOMParser().parseFromString(await response.text(), "text/html");
+      return response.ok && !/\/login\/|\/sso\/|selectsource|as_login/i.test(response.url) && !doc.querySelector("#login") && !/Sistema de Contas/i.test(doc.title);
+    });
+    return { authenticated, loginUrl };
+  } catch {
+    return { authenticated: false, loginUrl };
+  }
 }
 
 async function openForLogin(origin, existingTab) {
@@ -114,6 +158,66 @@ async function discoverPhilaCourses() {
   };
 }
 
+const MOODLE_ACTIVITY_TYPES = ["assign", "quiz", "diary", "wiki", "lti", "page", "talking"];
+
+// Runs in a Moodle tab; keep this function self-contained.
+async function inspectMoodleCourse(course, types) {
+  const response = await fetch(course.url, { credentials: "same-origin" });
+  if (!response.ok || response.url.includes("/login/")) {
+    return { ...course, error: `HTTP ${response.status}`, activities: [] };
+  }
+
+  const documentCopy = new DOMParser().parseFromString(await response.text(), "text/html");
+  const activities = [...documentCopy.querySelectorAll('a[href*="/mod/"]')].flatMap((link) => {
+    const url = new URL(link.getAttribute("href"), response.url);
+    const match = url.pathname.match(/\/mod\/([^/]+)\//);
+    const type = match?.[1];
+    const activityId = url.searchParams.get("id");
+    if (!types.includes(type) || !activityId) return [];
+
+    const container = link.closest("li.activity, [data-for='cmitem'], .activity");
+    const name = (
+      container?.querySelector(".activityname, .instancename")?.textContent
+      || link.textContent
+      || ""
+    ).replace(/\s+/g, " ").trim();
+
+    return [{ type, activityId, name, url: url.href }];
+  });
+
+  // Tasks and wikis carry their week title as the description's first line (bold or heading);
+  // label collected types as "<Tipo>: <title>", falling back to the Moodle name.
+  const typeLabels = { assign: "Tarefa", wiki: "Wiki", quiz: "Questionário", diary: "Diário" };
+  async function descriptionTitle(activity) {
+    try {
+      const page = await fetch(activity.url, { credentials: "same-origin" });
+      if (!page.ok) return "";
+      const doc = new DOMParser().parseFromString(await page.text(), "text/html");
+      const clean = (node) => node?.textContent.replace(/\s+/g, " ").trim() || "";
+      const first = [...(doc.querySelector("#intro, .activity-description")?.querySelectorAll("h1,h2,h3,h4,h5,h6,p") || [])].find(clean);
+      const bold = clean(first) === clean(first?.querySelector("strong, b")) || /^H\d$/.test(first?.tagName);
+      return first && bold && clean(first).length <= 150 ? clean(first) : "";
+    } catch {
+      return "";
+    }
+  }
+  const unique = [...new Map(
+    activities.map((activity) => [`${activity.type}:${activity.activityId}`, activity]),
+  ).values()];
+  for (const activity of unique) {
+    if (!typeLabels[activity.type]) continue;
+    const title = ["assign", "wiki"].includes(activity.type) ? await descriptionTitle(activity) : "";
+    activity.moodleName = activity.name;
+    activity.name = `${typeLabels[activity.type]}: ${title || activity.name}`;
+  }
+
+  return {
+    ...course,
+    title: documentCopy.title,
+    activities: unique,
+  };
+}
+
 async function discoverMoodleActivities() {
   const { philaCatalog } = await chrome.storage.local.get("philaCatalog");
   if (!philaCatalog?.rows?.length) {
@@ -134,55 +238,16 @@ async function discoverMoodleActivities() {
     }]),
   ).values()];
 
-  const [{ result }] = await chrome.scripting.executeScript({
-    target: { tabId: tab.id },
-    world: "MAIN",
-    args: [courses],
-    func: async (courseList) => {
-      const supported = new Set(["assign", "quiz", "diary", "lti", "page", "talking"]);
-
-      async function inspectCourse(course) {
-        const response = await fetch(course.url, { credentials: "same-origin" });
-        if (!response.ok || response.url.includes("/login/")) {
-          return { ...course, error: `HTTP ${response.status}`, activities: [] };
-        }
-
-        const documentCopy = new DOMParser().parseFromString(await response.text(), "text/html");
-        const activities = [...documentCopy.querySelectorAll('a[href*="/mod/"]')].flatMap((link) => {
-          const url = new URL(link.href, response.url);
-          const match = url.pathname.match(/\/mod\/([^/]+)\//);
-          const type = match?.[1];
-          const activityId = url.searchParams.get("id");
-          if (!supported.has(type) || !activityId) return [];
-
-          const container = link.closest("li.activity, [data-for='cmitem'], .activity");
-          const name = (
-            container?.querySelector(".activityname, .instancename")?.textContent
-            || link.textContent
-            || ""
-          ).replace(/\s+/g, " ").trim();
-
-          return [{ type, activityId, name, url: url.href }];
-        });
-
-        return {
-          ...course,
-          title: documentCopy.title,
-          activities: [...new Map(
-            activities.map((activity) => [`${activity.type}:${activity.activityId}`, activity]),
-          ).values()],
-        };
-      }
-
-      const output = [];
-      const queue = [...courseList];
-      const workers = Array.from({ length: 3 }, async () => {
-        while (queue.length) output.push(await inspectCourse(queue.shift()));
+  const result = [];
+  const queue = [...courses];
+  await Promise.all(Array.from({ length: 3 }, async () => {
+    while (queue.length) {
+      const [{ result: course }] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id }, world: "MAIN", func: inspectMoodleCourse, args: [queue.shift(), MOODLE_ACTIVITY_TYPES],
       });
-      await Promise.all(workers);
-      return output;
-    },
-  });
+      result.push(course);
+    }
+  }));
 
   const discoveredAt = new Date().toISOString();
   await chrome.storage.local.set({ moodleCatalog: { discoveredAt, courses: result } });
@@ -402,9 +467,12 @@ async function collectRnpAttendance() {
 
         for (const row of historyDocument.querySelectorAll("table tbody tr")) {
           const cells = [...row.cells].map((cell) => cell.textContent.replace(/\s+/g, " ").trim());
-          const artifactEndpoint = row.querySelector("[download-artifacts-endpoint]")
-            ?.getAttribute("download-artifacts-endpoint");
+          if (!cells.some(Boolean)) continue; // Spacer row at the end of the list.
+          // RNP renamed this attribute from download-artifacts-endpoint; accept both.
+          const artifactEndpoint = row.querySelector("[download-documents-endpoint]")?.getAttribute("download-documents-endpoint")
+            || row.querySelector("[download-artifacts-endpoint]")?.getAttribute("download-artifacts-endpoint");
           let participantsUrl = null;
+          let engagementUrl = null;
           if (artifactEndpoint) {
             const artifactResponse = await timedFetch(
               new URL(artifactEndpoint, historyResponse.url),
@@ -414,8 +482,10 @@ async function collectRnpAttendance() {
               await artifactResponse.text(),
               "text/html",
             );
-            participantsUrl = [...artifactDocument.querySelectorAll("a[href]")]
-              .find((link) => link.dataset.trackingId === "lti-download-participants-list")?.href || null;
+            const documentLink = (trackingId) => [...artifactDocument.querySelectorAll("a[href]")]
+              .find((link) => link.dataset.trackingId === trackingId)?.href || null;
+            participantsUrl = documentLink("lti-download-participants-list");
+            engagementUrl = documentLink("lti-download-engagement-report");
           }
           meetings.push({
             title: cells[0] || "",
@@ -423,6 +493,7 @@ async function collectRnpAttendance() {
             time: cells[2] || "",
             duration: cells[3] || "",
             participantsUrl,
+            engagementUrl,
           });
         }
         output.push({ groupCode, groupId, meetings });
@@ -433,6 +504,18 @@ async function collectRnpAttendance() {
 
   for (const group of sessions) {
     for (const meeting of group.meetings) {
+      // Signed links expire in 15 minutes, so they are used right away and never stored.
+      const engagementUrl = engagementDataUrl(meeting.engagementUrl);
+      delete meeting.engagementUrl;
+      if (engagementUrl) {
+        try {
+          const response = await fetchWithTimeout(engagementUrl);
+          if (!response.ok) throw new Error(`Relatório de engajamento respondeu ${response.status}.`);
+          meeting.engagement = summarizeRnpEngagement(await response.json());
+        } catch (error) {
+          meeting.engagementError = error.message;
+        }
+      } else meeting.engagementError = "O RNP não disponibiliza relatório de engajamento para esta sessão.";
       if (!meeting.participantsUrl) {
         meeting.attendance = [];
         continue;
@@ -457,6 +540,7 @@ async function collectRnpAttendance() {
       (total, group) => total + group.meetings.reduce(
         (subtotal, meeting) => subtotal + meeting.attendance.length, 0), 0),
     errorCount: sessions.filter((group) => group.error).length,
+    engagementCount: sessions.reduce((total, group) => total + group.meetings.filter((meeting) => meeting.engagement).length, 0),
   };
 }
 
@@ -480,6 +564,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     GET_SELECTED_COURSE: getSelectedCourse,
     COLLECT_RNP_ATTENDANCE: collectRnpAttendance,
     GET_RNP_REPORT: getRnpReport,
+    CHECK_MOODLE_SESSION: checkMoodleSession,
     OPEN_STUDENT_ACTIVITY: async () => {
       const { course, groups } = await getSelectedCourse();
       if (String(course.courseId) !== String(message.courseId) || !groups.includes(message.groupCode)) throw new Error('Curso ou turma fora da seleção atual');
@@ -491,10 +576,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (!jobs.some(job => job.records?.some(record => String(record.userId) === String(message.userId)))) throw new Error('Aluno ausente da turma coletada');
       const group = jobs.find(job => job.group.id)?.group;
       if (!group) throw new Error('Realize a coleta da turma primeiro');
-      const [tab] = await matchingTabs(ORIGINS.moodle);
-      if (!tab) throw new Error('Abra o Moodle autenticado');
-      const [execution] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: 'ISOLATED', func: resolveStudentDestination, args: [{ activity, group, userId: message.userId }] });
-      const result = execution.result;
+      const result = await runInMoodle(course.url, resolveStudentDestination, [{ activity, group, userId: message.userId }]);
       if (!result?.url || new URL(result.url).origin !== ORIGINS.moodle) throw new Error('Destino Moodle não confirmado');
       await chrome.tabs.create({ url: result.url });
       return result;
@@ -507,8 +589,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (message.activityId && !activity) throw new Error('Atividade não pertence ao curso');
       const selected = await getSelectedCourse();
       if (message.group && !selected.groups.includes(message.group.code)) throw new Error('Grupo não selecionado para sincronização');
-      const [tab] = await matchingTabs(ORIGINS.moodle);
-      if (!tab) throw new Error('Abra o Moodle autenticado');
       if (message.pdf) {
         if (!activity || activity.type !== 'assign' || !message.group || !message.pdf.reportKey?.startsWith(`evaluationExport:${course.courseId}:`)) throw new Error('Escopo PDF inválido');
         const saved = (await chrome.storage.local.get(message.pdf.reportKey))[message.pdf.reportKey];
@@ -518,16 +598,25 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         if (!row?.pdf) throw new Error('PDF não identificado na coleta deste aluno');
         const file = message.pdf.kind === 'file' ? row.pdf.files?.find(f => f.url === message.pdf.url) : null;
         if (message.pdf.kind === 'file' ? !file : message.pdf.kind !== 'annotations' || !row.pdf.source) throw new Error('Fonte PDF não confirmada na listagem');
-        const [execution] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: 'ISOLATED', func: file ? readPublishedPdf : readPdfAnnotations,
-          args: [file ? { url: file.url } : { source: { ...row.pdf.source, courseId: course.courseId } }] });
-        const result = execution.result;
+        const result = await runInMoodle(course.url, file ? readPublishedPdf : readPdfAnnotations,
+          [file ? { url: file.url } : { source: { ...row.pdf.source, courseId: course.courseId } }]);
         if (result.error || file) return result;
         return normalizePdfAnnotations(result.payload);
       }
       if (message.detailUrl && !activity) throw new Error('Atividade necessária');
-      const [execution] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: 'ISOLATED', func: message.detailUrl ? readFeedbackDetail : readMoodle,
-        args: [{ courseId: course.courseId, activity, group: message.group, groups: selected.groups, evaluations: message.evaluations === true, url: message.detailUrl }] });
-      return execution.result;
+      if (!activity) {
+        const discovered = await runInMoodle(course.url, readMoodle, [{ courseId: course.courseId, groups: selected.groups }]);
+        if (discovered.error) return discovered;
+        // Refresh the activity list so activities added to the course after mapping are collected too.
+        const refreshed = await runInMoodle(course.url, inspectMoodleCourse, [course, MOODLE_ACTIVITY_TYPES]);
+        if (refreshed.error || !refreshed.activities.length) return discovered;
+        const { moodleCatalog: latest } = await chrome.storage.local.get('moodleCatalog');
+        const courses = latest.courses.map(item => String(item.courseId) === String(course.courseId) ? { ...item, activities: refreshed.activities } : item);
+        await chrome.storage.local.set({ moodleCatalog: { ...latest, courses } });
+        return { ...discovered, activities: refreshed.activities };
+      }
+      return runInMoodle(course.url, message.detailUrl ? readFeedbackDetail : readMoodle,
+        [{ courseId: course.courseId, activity, group: message.group, groups: selected.groups, evaluations: message.evaluations === true, url: message.detailUrl }]);
     },
   }[message?.type];
 

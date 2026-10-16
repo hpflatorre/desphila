@@ -28,6 +28,32 @@ const expression = `(async () => {
   check((await index(html({...widget,userid:11},pdfCell))).evaluationRows[0].pdf.state==='unknown', 'Different student rejected');
   check((await index(html({...widget,attemptnumber:-1},pdfCell))).evaluationRows[0].pdf.state==='unknown', 'Unknown attempt rejected');
   check((await index(html(widget,'<a href="https://example.invalid/cepm/pluginfile.php/55/assignfeedback_editpdf/download/777/f.pdf">PDF</a>'))).evaluationRows[0].pdf.files.length===0, 'Foreign URL rejected');
+  const emptyGrading = notice => '<html><body id="page-mod-assign-grading" class="course-13"><select name="group"><option value="443" selected>PM1_121</option></select><div class="box gradingtable"><div class="alert alert-info">' + notice + '</div></div></body></html>';
+  const empty = await index(emptyGrading('Nada a ser mostrado'));
+  check(empty.complete && !empty.error && empty.records.length===0 && empty.evaluationRows.length===0, 'Empty grading list is a valid zero-record query');
+  check(!(await index(emptyGrading('Outro aviso'))).complete, 'Missing table without empty notice stays indeterminate');
+  const wikiRow = (version, user, time, date) => '<tr class="wiki_histnewdate"><td></td><td><a href="/cepm/mod/wiki/viewversion.php?pageid=127&versionid=' + version + '">' + version + '</a></td><td><a href="/cepm/user/view.php?id=' + user + '&course=13"><span class="userinitials" title="Pessoa ' + user + '"></span></a></td><td>' + time + '</td><td><div class="wiki_histdate">' + date + '</div></td></tr>';
+  const wikiHistory = (rows, pages) => '<html><body id="page-mod-wiki-history"><div id="region-main"><table class="generaltable"><thead><tr><th>Diff</th></tr></thead><tbody>' + rows.join('') + '</tbody></table><div class="pagination">' + pages + '</div></div></body></html>';
+  async function indexWiki(selected) {
+    const pages = {
+      'view.php': '<html><body id="page-mod-wiki-view"><select name="group"><option value="' + selected + '" selected>PM1_121</option></select><a href="/cepm/mod/wiki/prettyview.php?pageid=127">Imprimir</a></body></html>',
+      'map.php': '<html><body id="page-mod-wiki-map"><div id="region-main"><a href="/cepm/mod/wiki/view.php?pageid=127">A</a><a href="/cepm/mod/wiki/view.php?pageid=128">B</a></div></body></html>',
+      '127:0': wikiHistory([wikiRow(5, 10, '18:51 PM', '13 de outubro de 2026'), wikiRow(4, 99, '08:10 AM', '12 de outubro de 2026'), wikiRow(3, 10, '07:00 AM', '12 de outubro de 2026')], '<a href="#">1</a><a href="/cepm/mod/wiki/history.php?pageid=127&page=1">2</a>'),
+      '127:1': wikiHistory([wikiRow(2, 11, '04:56 PM', '6 de outubro de 2026')], '<a href="/cepm/mod/wiki/history.php?pageid=127&page=0">1</a><a href="#">2</a><a href="/cepm/mod/wiki/history.php?pageid=127&page=2">3</a>'),
+      '127:2': wikiHistory([wikiRow(1, 12, '04:00 AM', '6 de outubro de 2026')], '<a href="/cepm/mod/wiki/history.php?pageid=127&page=1">2</a><a href="#">3</a>'),
+      '127:3': wikiHistory(['<tr><td colspan="5"></td></tr>'], '<a href="/cepm/mod/wiki/history.php?pageid=127&page=4">5</a>'),
+      '128:0': wikiHistory([wikiRow(9, 10, '09:30 AM', '14 de outubro de 2026')], ''),
+    };
+    const fetch = async url => { const u = new URL(url); const key = u.pathname.endsWith('history.php') ? u.searchParams.get('pageid') + ':' + u.searchParams.get('page') : u.pathname.split('/').pop(); return { ok:true, url:String(url), text:async()=>pages[key] }; };
+    const read = ${readMoodle.toString()};
+    return read({courseId:'13',activity:{type:'wiki',activityId:'1757'},group:{code:'PM1_121',id:'443'}});
+  }
+  const wiki = await indexWiki('443');
+  const author = id => wiki.records.find(record => record.userId === id);
+  check(wiki.complete && wiki.contributorsOnly && wiki.records.length===4, 'Wiki history lists every author across pages');
+  check(author('10').evidence.startsWith('3 edições') && author('10').submittedAt===new Date(2026,9,14,9,30).toISOString(), 'Wiki author keeps edit count and latest edit');
+  check(author('11').submittedAt===new Date(2026,9,6,16,56).toISOString() && author('12').evidence.startsWith('1 edição'), 'Wiki 12-hour time and single edit');
+  check((await indexWiki('999')).error==='Filtro de grupo não confirmado', 'Wiki of another group rejected');
   const requests = [];
   const fetch = async (value, options) => {
     const url = new URL(value, location.origin); requests.push({url,options});

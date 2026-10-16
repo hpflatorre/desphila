@@ -4,15 +4,17 @@ export const STATUS_LABELS = {
   recorded: 'Registro encontrado', unknown: 'Indeterminado',
 };
 export function groupMatrix(report, code) {
-  const jobs = report.results.filter(r => r.group.code === code);
+  // Contributor lists (wiki history) also include staff, so they never add students on their own.
+  const jobs = report.results.filter(r => r.group.code === code).sort((a, b) => Boolean(a.contributorsOnly) - Boolean(b.contributorsOnly));
   const students = new Map();
   const rank = { unknown: 0, not_started: 1, not_submitted: 1, draft: 2, in_progress: 2, recorded: 3, submitted: 3, finished: 3 };
   for (const job of jobs) {
     for (const record of job.records || []) {
       if (!record.userId) continue;
       let student = students.get(record.userId);
+      if (!student && job.contributorsOnly) continue;
       if (!student) students.set(record.userId, student = { userId: record.userId, name: record.name || `Usuário ${record.userId}`, states: {} });
-      if (record.name) student.name = record.name;
+      if (record.name && !job.contributorsOnly) student.name = record.name;
       const previous = student.states[job.activityId];
       if (!previous || rank[record.status] > rank[previous.status]) student.states[job.activityId] = record;
     }
@@ -26,6 +28,9 @@ export function stateForActivity(report, code, student, activity) {
   const job = report.results.find(result => result.group.code === code && String(result.activityId) === String(activity.activityId));
   if (activity.type === 'diary' && job?.complete && !job.error) {
     return { status: 'not_submitted', evidence: 'Nenhum registro localizado no relatório completo do diário' };
+  }
+  if (activity.type === 'wiki' && job?.complete && !job.error) {
+    return { status: 'not_submitted', evidence: 'Nenhuma edição localizada no histórico completo da wiki da turma' };
   }
   return undefined;
 }
@@ -41,36 +46,57 @@ export function attendanceForStudent(rnpReport, code, student, classmates) {
   const duration = participation.validSessionCount
     ? `${participation.totalMinutes} minutos (${participation.percent}% ${participation.sessionCount === 1 ? 'da sessão' : 'das sessões'})`
     : 'duração indisponível';
-  return `${participation.sessionCount} ${participation.sessionCount === 1 ? 'presença' : 'presenças'}\n${duration}`;
+  const partial = participation.partialNameCount ? `\nnome parcial em ${participation.partialNameCount} ${participation.partialNameCount === 1 ? 'sessão' : 'sessões'}` : '';
+  return `${participation.sessionCount} ${participation.sessionCount === 1 ? 'presença' : 'presenças'}\n${duration}${partial}`;
 }
 
 const normalizeName = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toLocaleUpperCase('pt-BR');
 
+const NAME_CONNECTORS = new Set(['DE', 'DA', 'DO', 'DAS', 'DOS', 'E']);
+const nameWords = value => normalizeName(value).replace(/[^A-Z\s]/g, ' ').split(/\s+/).filter(word => word.length > 2 && !NAME_CONNECTORS.has(word));
+// Guests often type a shortened name ("Ana Souza"): same first name and every other word found in the full name.
+const partialNameOf = (rnpName, fullName) => {
+  const short = nameWords(rnpName), full = nameWords(fullName);
+  return short.length >= 2 && short[0] === full[0] && short.slice(1).every(word => full.includes(word));
+};
+
+// Matches by Moodle ID first: the engagement report links each RNP display name to the Moodle ID of
+// participants who joined through Moodle. The full name is the fallback (guests, sessions without engagement).
 export function rnpParticipationForStudent(rnpReport, code, student, classmates) {
   const name = normalizeName(student.name);
-  if (!name || classmates.filter(person => normalizeName(person.name) === name).length !== 1) {
-    return { status: 'ambiguous', label: 'Nome ambíguo' };
-  }
+  const uniqueName = Boolean(name) && classmates.filter(person => normalizeName(person.name) === name).length === 1;
   const group = rnpReport?.groups?.find(item => item.groupCode === code);
-  if (!group || group.error || !group.meetings?.length) return { status: 'unavailable', label: 'Sem evidência RNP' };
+  if (!group || group.error || !group.meetings?.length) {
+    return uniqueName ? { status: 'unavailable', label: 'Sem evidência RNP' } : { status: 'ambiguous', label: 'Nome ambíguo' };
+  }
   const attended = [];
   for (const meeting of group.meetings) {
-    const records = (meeting.attendance || []).filter(person => normalizeName(person.name) === name);
+    const idNames = new Set((meeting.engagement?.participants || [])
+      .filter(person => student.userId && person.moodleUserId === String(student.userId)).map(person => normalizeName(person.name)));
+    let records = (meeting.attendance || []).filter(person => idNames.has(normalizeName(person.name)));
+    if (!records.length && uniqueName) records = (meeting.attendance || []).filter(person => normalizeName(person.name) === name);
+    let partial = false;
+    if (!records.length) {
+      // Only names that fit this student alone and match nobody exactly.
+      records = (meeting.attendance || []).filter(person => !classmates.some(other => normalizeName(other.name) === normalizeName(person.name))
+        && partialNameOf(person.name, student.name) && classmates.filter(other => partialNameOf(person.name, other.name)).length === 1);
+      partial = records.length > 0;
+    }
     if (!records.length) continue;
     const sessionSeconds = durationSeconds(meeting.duration);
     const recordDurations = records.map(person => durationSeconds(person.duration)).filter(value => value !== null);
     const recordedSeconds = recordDurations.length ? recordDurations.reduce((total, value) => total + value, 0) : null;
     attended.push({
-      title: meeting.title || 'Sessão RNP', date: meeting.date || '',
+      title: meeting.title || 'Sessão RNP', date: meeting.date || '', partial,
       sessionSeconds, recordedSeconds: sessionSeconds === null || recordedSeconds === null ? null : Math.min(recordedSeconds, sessionSeconds),
     });
   }
-  if (!attended.length) return { status: 'not_found', label: 'Não localizado pelo nome' };
+  if (!attended.length) return uniqueName ? { status: 'not_found', label: 'Não localizado no RNP' } : { status: 'ambiguous', label: 'Nome ambíguo' };
   const valid = attended.filter(item => item.sessionSeconds !== null && item.recordedSeconds !== null);
   const totalSessionSeconds = valid.reduce((total, item) => total + item.sessionSeconds, 0);
   const totalRecordedSeconds = valid.reduce((total, item) => total + item.recordedSeconds, 0);
   return {
-    status: 'recorded', label: '', sessionCount: attended.length, validSessionCount: valid.length,
+    status: 'recorded', label: '', sessionCount: attended.length, validSessionCount: valid.length, partialNameCount: attended.filter(item => item.partial).length,
     totalMinutes: Math.round(totalRecordedSeconds / 60), totalSessionMinutes: Math.round(totalSessionSeconds / 60),
     percent: totalSessionSeconds ? Math.round(totalRecordedSeconds / totalSessionSeconds * 100) : null,
     sessions: valid.map(item => ({ ...item, minutes: Math.round(item.recordedSeconds / 60), percent: Math.round(item.recordedSeconds / item.sessionSeconds * 100) })),
@@ -249,7 +275,7 @@ export function buildPendingMessage({ courseCode, groupCode, contactName, analys
       lines.push('', `• ${compactWhatsAppName(student.name)}`);
       for (const item of deliveryById.get(id)?.missing || []) lines.push(`  - Entrega: ${item.activity.name} (${STATUS_LABELS[item.status]})`);
       const attention = attentionById.get(id);
-      if (attention?.status === 'not_found') lines.push('  - Presença RNP: Não localizado pelo nome');
+      if (attention?.status === 'not_found') lines.push('  - Presença RNP: Não localizado no RNP');
       else if (attention) lines.push(`  - Atenção RNP: ${attention.percent}% do tempo das sessões (${attention.totalMinutes}/${attention.totalSessionMinutes} min; limiar: ${analysis.rnpAttention.cutoffPercent}%)`);
     }
   }
@@ -283,7 +309,7 @@ export function pendingExportRows(analysis) {
   }
   for (const student of analysis.rnpAttention?.students || []) {
     rows.push(student.status === 'not_found'
-      ? { block: 'Pendências do aluno', student: student.name, type: 'Pendência RNP', item: 'Presença', detail: 'Não localizado pelo nome' }
+      ? { block: 'Pendências do aluno', student: student.name, type: 'Pendência RNP', item: 'Presença', detail: 'Não localizado no RNP' }
       : { block: 'Pendências do aluno', student: student.name, type: 'Atenção RNP', item: 'Participação em tempo', detail: `${student.percent}% (${student.totalMinutes}/${student.totalSessionMinutes} min; limiar: ${analysis.rnpAttention.cutoffPercent}%)` });
   }
   return rows.sort((left, right) => left.student.localeCompare(right.student, 'pt-BR') || left.type.localeCompare(right.type, 'pt-BR'));

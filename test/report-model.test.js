@@ -22,7 +22,7 @@ test('RNP calcula participação agregada sem confundir homônimos ou declarar f
   assert.equal(attendanceForStudent(single,'PM1_121',student,[student]),'1 presença\n54 minutos (79% da sessão)');
   assert.equal(attendanceForStudent(rnp,'PM1_121',student,[student,{name:'João Exemplo'}]),'Nome ambíguo');
   const other={name:'Outra Pessoa'};
-  assert.equal(attendanceForStudent(rnp,'PM1_121',other,[other]),'Não localizado pelo nome');
+  assert.equal(attendanceForStudent(rnp,'PM1_121',other,[other]),'Não localizado no RNP');
   assert.equal(attendanceForStudent(rnp,'PM1_122',student,[student]),'Sem evidência RNP');
 });
 test('presença registrada mantém sessão quando a duração está indisponível',()=>{
@@ -54,6 +54,24 @@ test('RNP classifica aluno não localizado como pendência sem confundir indispo
   assert.equal(result.available,true);
   assert.deepEqual(result.students.map(student=>[student.name,student.status]),[['Bia','not_found']]);
   assert.deepEqual(rnpAttentionAnalysis(rnp,'PM1_122',students,50).students,[]);
+});
+test('RNP localiza pelo ID Moodle do engajamento antes do nome e resolve homônimos',()=>{
+  const students=[{userId:'1',name:'Ana Souza'},{userId:'2',name:'Ana Souza'},{userId:'3',name:'Bia Lima'}];
+  const rnp={groups:[{groupCode:'PM1_121',meetings:[{duration:'01:00:00',
+    attendance:[{name:'Ana S.',duration:'00:40:00'},{name:'Ana Souza',duration:'00:30:00'},{name:'Bia Lima',duration:'01:00:00'}],
+    engagement:{participants:[{name:'Ana S.',moodleUserId:'1'},{name:'Ana Souza',moodleUserId:''}]}}]}]};
+  assert.equal(attendanceForStudent(rnp,'PM1_121',students[0],students),'1 presença\n40 minutos (67% da sessão)');
+  assert.equal(attendanceForStudent(rnp,'PM1_121',students[1],students),'Nome ambíguo');
+  assert.equal(attendanceForStudent(rnp,'PM1_121',students[2],students),'1 presença\n60 minutos (100% da sessão)');
+});
+test('RNP aceita nome parcial de convidado apenas quando identifica um único aluno',()=>{
+  const students=[{userId:'1',name:'Ana Maria Souza Lima'},{userId:'2',name:'Bia Costa Ramos'},{userId:'3',name:'Bia Ramos Neves'},{userId:'4',name:'Caio de Paula'}];
+  const rnp={groups:[{groupCode:'PM1_121',meetings:[{duration:'01:00:00',attendance:[
+    {name:'ana souza',duration:'00:30:00'},{name:'Bia Ramos',duration:'01:00:00'},{name:'Caio',duration:'01:00:00'},{name:'Ana Lima Prado',duration:'01:00:00'},
+  ]}]}]};
+  assert.equal(attendanceForStudent(rnp,'PM1_121',students[0],students),'1 presença\n30 minutos (50% da sessão)\nnome parcial em 1 sessão');
+  assert.equal(attendanceForStudent(rnp,'PM1_121',students[1],students),'Não localizado no RNP'); // "Bia Ramos" fits two students
+  assert.equal(attendanceForStudent(rnp,'PM1_121',students[3],students),'Não localizado no RNP'); // first name alone is not enough
 });
 test('percentual de finalização usa os alunos da turma como denominador',()=>{
   const students=[{states:{'1':{status:'submitted'}}},{states:{'1':{status:'finished'}}},{states:{'1':{status:'not_started'}}},{states:{}}];
@@ -90,6 +108,17 @@ test('diário coletado classifica ausência de registro como entrega pendente',(
   const result=pendingAnalysis(report,'PM1_121',activities);
   assert.deepEqual(result.pending.map(student=>[student.name,...student.missing.map(item=>[item.activity.name,item.status])]),[['Bia',['Portfólio Reflexivo Avaliativo','not_submitted']]]);
   assert.equal(result.unresolved,0);
+});
+test('wiki coletada não cria alunos a partir de edições da equipe e acusa ausência de edição',()=>{
+  const activities=[{activityId:'1',name:'Tarefa',type:'assign'},{activityId:'4',name:'Wiki',type:'wiki'}];
+  const report={results:[
+    {complete:true,group:{code:'PM1_121'},activityId:'4',contributorsOnly:true,records:[{userId:'10',name:'ana (wiki)',status:'recorded'},{userId:'99',name:'Tutora',status:'recorded'}]},
+    {complete:true,group:{code:'PM1_121'},activityId:'1',records:[{userId:'10',name:'Ana',status:'submitted'},{userId:'11',name:'Bia',status:'submitted'}]},
+  ]};
+  const rows=groupMatrix(report,'PM1_121');
+  assert.deepEqual(rows.map(row=>[row.name,row.states['4']?.status]),[['Ana','recorded'],['Bia',undefined]]);
+  const result=pendingAnalysis(report,'PM1_121',activities);
+  assert.deepEqual(result.pending.map(student=>[student.name,...student.missing.map(item=>[item.activity.name,item.status])]),[['Bia',['Wiki','not_submitted']]]);
 });
 test('análise sinaliza consultas ausentes sem acusar o aluno de pendência',()=>{
   const activities=[{activityId:'1',name:'Tarefa'}];

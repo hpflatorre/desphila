@@ -6,7 +6,12 @@ import { showAge, oldestSuccessfulTimestamp } from './lib/time-age.js';
 
 export async function initEvaluationReport(course, groups) {
   const countLabel = (count, singular, plural) => `${count} ${count === 1 ? singular : plural}`;
-  const notifySession = error => { if (/sess[aã]o expirada|abra o (phila|moodle).*autenticad/i.test(String(error || ''))) window.dispatchEvent(new CustomEvent('phila-session-expired')); };
+  // Stop at the first session error; the report resumes this collection after the Moodle login.
+  const notifySession = error => {
+    if (!/sess[aã]o expirada|abra o (phila|moodle).*autenticad/i.test(String(error || ''))) return;
+    stopping = true;
+    window.dispatchEvent(new CustomEvent('moodle-session-expired', { detail: { retry: () => start.onclick() } }));
+  };
   const scope = document.querySelector('#evaluation-scope');
   const start = document.querySelector('#evaluation-start');
   const stop = document.querySelector('#evaluation-stop');

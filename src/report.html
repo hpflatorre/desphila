@@ -39,18 +39,19 @@
           <button id="collect-moodle" type="button">Coletar atividades</button>
           <button id="stop-moodle" type="button" disabled>Parar após consulta atual</button>
           <button id="collect-rnp" type="button">Coletar RNP</button>
+          <button id="export-rnp-engagement" type="button" disabled>Exportar engajamento RNP (CSV)</button>
           <button id="export-moodle" type="button" disabled>Exportar CSV</button>
         </div>
       </section>
       <p>A coleta é salva a cada consulta. Mantenha esta aba aberta. Os alunos são os encontrados nas atividades; a lista ainda não constitui conferência independente da matrícula.</p>
       <p>Na análise de pendências, marque as atividades que já deveriam ter sido concluídas. Por padrão, a listagem mostrará somente alunos com pendências explícitas. Confira a mensagem pré-preenchida antes de enviá-la pelo aplicativo WhatsApp ou pelo navegador.</p>
-      <p>RNP: o cruzamento usa nome completo, desconsiderando acentos e maiúsculas. “Não localizado pelo nome” é marcado como pendência; confira possíveis diferenças de cadastro e sessões A/B que atendam subgrupos diferentes.</p>
+      <p>RNP: o cruzamento usa o ID Moodle registrado no relatório de engajamento e, na falta dele, o nome completo, desconsiderando acentos e maiúsculas; nomes abreviados que identificam um único aluno aparecem como “nome parcial”. “Não localizado no RNP” é marcado como pendência; confira possíveis diferenças de cadastro e sessões A/B que atendam subgrupos diferentes.</p>
       <div id="moodle-results"></div>
       <section>
         <h2>Notas e feedbacks</h2>
         <label for="evaluation-scope">Exportar do curso ou atividade:</label>
         <select id="evaluation-scope"></select>
-        <p class="field-help">A lista contém somente tarefas, questionários e diários. Links, páginas, chats e acessos externos não possuem notas ou feedbacks exportáveis neste relatório.</p>
+        <p class="field-help">A lista contém somente tarefas, questionários e diários. Links, páginas, wikis, chats e acessos externos não possuem notas ou feedbacks exportáveis neste relatório.</p>
         <div class="actions">
           <button id="evaluation-start">Coletar / retomar pendências</button>
           <button id="evaluation-refresh">Nova coleta atualizada</button>
@@ -76,9 +77,9 @@
     </main>
     <footer class="app-footer"><a href="https://github.com/hpflatorre" target="_blank" rel="noreferrer">hpflatorre</a><span>Licença MIT</span></footer>
     <dialog id="session-expired-dialog">
-      <h2>Sessão do PHILA expirada</h2>
-      <p>A plataforma não está mais autenticada. Abra uma nova guia do PHILA, faça login novamente e depois reinicie a coleta.</p>
-      <div class="dialog-actions"><button id="open-phila-login" type="button">Abrir login do PHILA</button><button id="close-session-dialog" class="secondary" type="button">Fechar</button></div>
+      <h2>Sessão do Moodle expirada</h2>
+      <p id="session-dialog-message">O Moodle não respondeu como autenticado. Abra o Moodle e faça login; depois do login, a extensão volta para este painel e retoma a coleta.</p>
+      <div class="dialog-actions"><button id="open-moodle-login" type="button">Abrir login do Moodle</button><button id="close-session-dialog" class="secondary" type="button">Fechar</button></div>
     </dialog>
     <script type="module" src="report.js"></script>
   </body>
