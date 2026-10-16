@@ -15,8 +15,28 @@ a lista oficial RNP. O código PMMFC042 é duplicado na origem; usar courseId.
   onlygraded=0. Ler todas as páginas e considerar múltiplas tentativas.
 - Diário: `mod/diary/report.php`, group explícito, tabelas diaryuserentry.
   IDs entry- correspondem aos usuários no seletor jumpuser desta implantação.
+- Wiki colaborativa: `mod/wiki/view.php?id=…&group=…` confirma o grupo e dá o
+  pageid do subwiki; `map.php?option=5` lista as páginas e `history.php?pageid=…`
+  (seguindo a paginação) lista os autores de cada versão. O histórico inclui a
+  equipe, então esses registros só se aplicam a alunos vistos em outras atividades.
+  Após a última página, o Moodle devolve linha vazia e um novo link “próxima”.
 - RNP: histórico é carregado por meetings_pagination; o HTML-base é vazio.
   Ler o fragmento dentro de table/tbody. activities.txt contém a presença.
+  Em 10/2026 o atributo da linha mudou de download-artifacts-endpoint para
+  download-documents-endpoint; sem ele, a coleta trazia sessões sem presenças.
+  A última linha do fragmento é vazia e não é sessão.
+- Engajamento RNP: o link lti-download-engagement-report abre ld.mconf.rnp.br com
+  `data=` apontando para learning_dashboard.json (S3 assinado, 15 min). É o JSON do
+  painel do BigBlueButton, com tempos em ms. O painel une entradas com o mesmo extId
+  (reconexões) e calcula a pontuação de atividade: fala, chat, mãos levantadas e
+  reações valem até 2 pontos cada, relativos ao aluno mais ativo; enquetes até 2.
+  Moderadores ficam “Indisponível”. Conferido com o painel: 16/16 linhas idênticas.
+  extId numérico é o ID Moodle; convidados aparecem como guest_….
+  Sessões curtas paralelas (salas de grupo) não têm engajamento nem lista de presença.
+- Cruzamento RNP × Moodle (10/2026): quem entra pelo Moodle já aparece com o nome
+  completo do Moodle, então o ID não mudou nenhum resultado. A maior parte dos “não
+  localizados” eram convidados (guest_…) com nome abreviado; o nome parcial único
+  reduziu os não localizados de 82 para 28 alunos nas 8 turmas com sessões.
 
 ## Armadilhas observadas
 
@@ -27,7 +47,13 @@ a lista oficial RNP. O código PMMFC042 é duplicado na origem; usar courseId.
 - Não diagnosticar indisponibilidade após apenas 10 s. Leituras Moodle têm timeout
   de 45 s incluindo corpo e uma repetição. RNP ainda requer melhorias de timeout
   do corpo, repetição, paginação completa e restauração do grupo selecionado.
+- Guia do Moodle fechada não é sessão expirada. As consultas rodam dentro de uma
+  guia Moodle; sem ela, a extensão abre uma em segundo plano. O aviso de sessão
+  só deve aparecer quando o Moodle redireciona para o login.
 - Questionário sem questões publicadas não é evidência de pendência do aluno.
+- Tarefa com acesso restrito (ex.: recuperação) pode não listar ninguém no grupo:
+  a página de avaliação mostra "Nada a ser mostrado" no lugar de #submissions.
+  Com o grupo confirmado, é consulta válida com zero registros, não falha.
 - Dados privados ficam apenas no armazenamento local da extensão. Não incluir
   payloads, relatórios nominais, cookies ou links assinados em arquivos de teste.
 

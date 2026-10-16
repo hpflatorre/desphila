@@ -25,8 +25,10 @@ coleta manualmente. Nenhuma coleta é habilitada sem ao menos uma turma marcada.
 - seleção persistente de um curso por execução do relatório;
 - tela consolidada com atividades e grupos do curso selecionado;
 - coleta sequencial das listas oficiais de presença do RNP, com timeout de 45 s;
-- parser local do artefato `activities.txt` do RNP;
-- matriz por aluno/grupo para tarefas, questionários e registros positivos do diário;
+- parser local do artefato `activities.txt` do RNP e do relatório de engajamento
+  de cada sessão (tempo online, fala, câmera, chat, mãos levantadas, reações,
+  enquetes e pontuação de atividade), exportável em CSV;
+- matriz por aluno/grupo para tarefas, questionários, registros do diário e edições em wikis colaborativas;
 - coleta Moodle sequencial, limite de 45 s incluindo leitura do corpo e uma repetição;
 - salvamento por curso a cada consulta, parada após consulta atual e exportação CSV;
 - nenhuma credencial ou informação real de aluno armazenada no código.
@@ -45,11 +47,20 @@ usam inscritos com e sem tentativa e preservam tentativas finalizadas quando há
 mais de uma. Ausência de registro no diário fica como **Sem evidência**. A lista
 de alunos vem dos relatórios de atividades; a conferência independente de matrícula
 e o cruzamento de ausentes RNP ainda estão pendentes. Recuperações e reofertas
-não são automaticamente consideradas obrigatórias para todos. Páginas, chat e
+não são automaticamente consideradas obrigatórias para todos. Wikis colaborativas
+contam as edições no histórico da wiki da turma; edições da equipe não criam alunos.
+Cada coleta atualiza a lista de atividades do curso. As atividades aparecem como
+“Tipo: título” (Tarefa, Wiki, Questionário, Diário); tarefas e wikis usam o título
+em destaque na primeira linha da descrição e, sem ele, o nome da atividade no Moodle. Páginas, chat e
 outros LTI permanecem no inventário, sem conclusão individual inferida.
 
-A matriz cruza presenças RNP por nome completo normalizado e sinaliza homônimos.
-“Não localizado pelo nome” é classificado como pendência, inclusive para chamar
+A matriz cruza presenças RNP primeiro pelo ID Moodle que o relatório de engajamento
+registra para quem entrou pelo Moodle; convidados e sessões sem engajamento usam o
+nome completo normalizado, e homônimos sem ID ficam como “Nome ambíguo”. Convidados
+que digitam nome abreviado (“Ana Souza”) são aceitos quando o primeiro nome coincide,
+todas as demais palavras constam do nome completo e o nome serve a um único aluno da
+turma; a matriz indica “nome parcial” nessas presenças para conferência.
+“Não localizado no RNP” é classificado como pendência, inclusive para chamar
 atenção a possíveis diferenças de cadastro ou ao subgrupo A/B. Abra cada grupo
 na seção RNP para auditar as sessões, participantes e horários.
 

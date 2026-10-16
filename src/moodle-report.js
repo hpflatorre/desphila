@@ -15,10 +15,14 @@ let rnpAttentionPercent = 50;
 let includeRnpAttention = true;
 const node = (tag, value) => { const e = document.createElement(tag); e.textContent = value; return e; };
 const countLabel = (count, singular, plural) => `${count} ${count === 1 ? singular : plural}`;
-const send = async message => {
+// A session error stops the caller; `retry` runs again once the report regains the Moodle login.
+const send = async (message, retry) => {
   const result = await chrome.runtime.sendMessage(message);
   if (!result) throw new Error('O coletor não retornou resultado');
-  if (result.error && /sess[aã]o expirada|abra o (phila|moodle).*autenticad/i.test(result.error)) window.dispatchEvent(new CustomEvent('phila-session-expired'));
+  if (result.error && /sess[aã]o expirada|abra o (phila|moodle).*autenticad/i.test(result.error)) {
+    window.dispatchEvent(new CustomEvent('moodle-session-expired', { detail: { retry } }));
+    throw new Error(result.error);
+  }
   return result;
 };
 const downloadBlob = (blob, filename) => {
@@ -88,7 +92,7 @@ export async function refreshMoodleRnpReport() {
   if (report) render();
   return rnpReport;
 }
-const allSupportedActivities = () => currentCourse.activities.filter(a => ['assign','quiz','diary'].includes(a.type));
+const allSupportedActivities = () => currentCourse.activities.filter(a => ['assign','quiz','diary','wiki'].includes(a.type));
 const inferredUnusedActivities = () => unusedActivities(report, allSupportedActivities(), currentGroups);
 const supportedActivities = () => {
   const omitted = new Set(inferredUnusedActivities().map(activity => String(activity.activityId)));
@@ -117,9 +121,9 @@ function statusLink(label, activity, groupCode, userId) {
     if (!notice) { notice = node('span', ''); notice.className = 'navigation-notice'; notice.setAttribute('role', 'status'); link.after(notice); }
     notice.textContent = '';
     try {
-      const result = await send({ type: 'OPEN_STUDENT_ACTIVITY', courseId: currentCourse.courseId, activityId: activity.activityId, groupCode, userId });
+      const result = await send({ type: 'OPEN_STUDENT_ACTIVITY', courseId: currentCourse.courseId, activityId: activity.activityId, groupCode, userId }, () => link.click());
       if (result.error) throw new Error(result.error);
-      notice.textContent = result.individual ? '' : ' Avaliação individual não localizada; aberta a listagem da turma.';
+      notice.textContent = result.individual ? '' : activity.type === 'wiki' ? ' Aberto o histórico de edições da wiki da turma.' : ' Avaliação individual não localizada; aberta a listagem da turma.';
     } catch (error) { notice.textContent = ` ${error.message}`; }
     finally { link.disabled = false; link.removeAttribute('aria-busy'); link.textContent = label; }
   });
@@ -153,7 +157,8 @@ function render() {
       await saveSelection(); render();
     });
     feedbackLabel.append(feedbackCheckbox, document.createTextNode('Verificar feedback'));
-    activityChoice.append(label, feedbackLabel); choices.append(activityChoice);
+    // Wikis have no grades or feedback in Moodle.
+    activityChoice.append(label, ...(activity.type === 'wiki' ? [] : [feedbackLabel])); choices.append(activityChoice);
   }
   selector.append(choices);
   const filterLabel = document.createElement('label'); filterLabel.className = 'pending-only-toggle';
@@ -245,7 +250,7 @@ function render() {
       const presence = node('td', attendanceForStudent(rnpReport, code, student, students)); presence.className = 'rnp-presence';
       if (attention) {
         presence.classList.add(attention.status === 'not_found' ? 'missing-attendance' : 'short-attendance');
-        presence.title = attention.status === 'not_found' ? 'Pendência RNP: aluno não localizado pelo nome' : `${attention.percent}% do tempo das sessões; limiar: ${rnpAttention.cutoffPercent}%`;
+        presence.title = attention.status === 'not_found' ? 'Pendência RNP: aluno não localizado pelo ID Moodle nem pelo nome' : `${attention.percent}% do tempo das sessões; limiar: ${rnpAttention.cutoffPercent}%`;
       }
       row.append(presence);
       for (const activity of activities) {
@@ -409,8 +414,16 @@ async function collect({ retry = false } = {}) {
   status.classList.add('is-loading'); status.classList.remove('has-warning'); status.setAttribute('aria-busy', 'true');
   try {
     status.textContent = 'Identificando os dez grupos do curso…';
-    const discovered = await send({type:'READ_MOODLE',courseId:currentCourse.courseId});
+    const discovered = await send({type:'READ_MOODLE',courseId:currentCourse.courseId}, resumeCollection);
     if (discovered.error) throw new Error(discovered.error);
+    if (discovered.activities) {
+      currentCourse.activities = discovered.activities;
+      // Keep the grades selector labels in step with the refreshed names.
+      for (const option of document.querySelectorAll('#evaluation-scope option')) {
+        const activity = discovered.activities.find(item => String(item.activityId) === option.value);
+        if (activity) option.textContent = activity.name;
+      }
+    }
     const activities = allSupportedActivities();
     const total = discovered.groups.length * activities.length;
     const unusedIds = new Set(inferredUnusedActivities().map(activity => String(activity.activityId)));
@@ -426,12 +439,12 @@ async function collect({ retry = false } = {}) {
         if (stopRequested) break;
         if (report.results.some(r => r.group.code === group.code && r.activityId === activity.activityId)) continue;
         status.textContent = `${report.results.length + 1}/${total}: ${group.code} · ${activity.name}. Aguarde até 45 s por tentativa.`;
-        const result = await send({type:'READ_MOODLE',courseId:currentCourse.courseId,activityId:activity.activityId,group,evaluations:feedbackRequiredActivities.has(String(activity.activityId))});
+        const result = await send({type:'READ_MOODLE',courseId:currentCourse.courseId,activityId:activity.activityId,group,evaluations:feedbackRequiredActivities.has(String(activity.activityId))}, resumeCollection);
         if (result.complete && feedbackRequiredActivities.has(String(activity.activityId))) {
           for (const row of result.evaluationRows || []) {
             if (!row.detailUrl || String(row.feedback || '').trim()) continue;
             status.textContent = `${group.code} · ${activity.name}: verificando feedback completo de ${row.name || `aluno ${row.userId}`}…`;
-            const detail = await send({type:'READ_MOODLE',courseId:currentCourse.courseId,activityId:activity.activityId,group,detailUrl:row.detailUrl});
+            const detail = await send({type:'READ_MOODLE',courseId:currentCourse.courseId,activityId:activity.activityId,group,detailUrl:row.detailUrl}, resumeCollection);
             if (detail.error) row.detailError = detail.error;
             else row.details = detail.details;
           }
@@ -455,6 +468,7 @@ async function collect({ retry = false } = {}) {
     status.classList.remove('is-loading'); status.removeAttribute('aria-busy');
   }
 }
+const resumeCollection = () => collect({ retry: true });
 document.querySelector('#collect-moodle').addEventListener('click', () => collect());
 document.querySelector('#export-moodle').addEventListener('click', () => {
   if (!report) return;
