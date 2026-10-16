@@ -1,6 +1,6 @@
 # Política de privacidade
 
-Última atualização: 19 de setembro de 2026.
+Última atualização: 16 de outubro de 2026.
 
 ## Finalidade
 
@@ -14,7 +14,11 @@ Conforme as permissões da conta autenticada, a extensão pode acessar:
 
 - nomes e identificadores de estudantes;
 - situação de entregas e tentativas, notas e feedbacks;
+- autoria de edições nas wikis de turma;
 - sessões, horários e duração de presença no RNP;
+- indicadores do relatório de engajamento do RNP (tempo online, de fala, de
+  câmera e ausente; mensagens, mãos levantadas, reações, respostas a enquetes e
+  pontuação de atividade), obtidos do armazenamento de dados da ConferênciaWeb;
 - nomes e telefones de contatos de turma informados pelo supervisor.
 
 Credenciais, senhas e cookies não são incluídos no código ou nos pacotes de
@@ -49,7 +53,8 @@ exportados devem ser excluídos separadamente pelo usuário.
 ## Segurança e escopo
 
 A extensão solicita acesso somente aos domínios usados pelo fluxo PHILA/Moodle,
-RNP e ao armazenamento/abas necessários para coleta e abertura dos relatórios.
+RNP (incluindo o bucket de dados da ConferênciaWeb que hospeda o relatório de
+engajamento) e ao armazenamento/abas necessários para coleta e abertura dos relatórios.
 Ela não contorna permissões dos sistemas: somente dados acessíveis à conta
 autenticada podem ser consultados.
 
