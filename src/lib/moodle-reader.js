@@ -18,6 +18,14 @@ export async function readMoodle({ courseId, activity, group, groups, evaluation
     const month = months[named[2]];
     return month === undefined ? '' : new Date(Number(named[3]), month, Number(named[1]), Number(named[4] || 0), Number(named[5] || 0)).toISOString();
   }
+  // Supervisors get a group dropdown or search widget; a facilitator with a single group sees
+  // only the text "Grupos separados: PM1_121".
+  function groupConfirmed(doc) {
+    const select = doc.querySelector('select[name="group"]');
+    if (select) return select.value === String(group.id);
+    if (text(doc.querySelector('.groupsearchwidget')).split(/\s+/).includes(group.code)) return true;
+    return text(doc.querySelector('.groupselector')).split(':').pop().trim() === group.code;
+  }
   // Parse JSON initializer data only; never execute page scripts or open the grader.
   function pdfWidgets(doc) {
     const widgets = [];
@@ -88,7 +96,7 @@ export async function readMoodle({ courseId, activity, group, groups, evaluation
     view.searchParams.set('group', group.id);
     const doc = await get(view.href);
     if (doc.querySelector('select[name="uid"]')) throw new Error('Wiki individual sem coletor');
-    if (doc.querySelector('select[name="group"]')?.value !== String(group.id)) throw new Error('Filtro de grupo não confirmado');
+    if (!groupConfirmed(doc)) throw new Error('Filtro de grupo não confirmado');
     const pageIds = node => [...node.querySelectorAll('a[href*="pageid="]')].map(a => new URL(a.getAttribute('href'), root))
       .filter(u => u.origin === location.origin && u.pathname.startsWith('/cepm/mod/wiki/')).map(u => u.searchParams.get('pageid')).filter(id => /^\d+$/.test(id || ''));
     const first = pageIds(doc)[0];
@@ -129,9 +137,23 @@ export async function readMoodle({ courseId, activity, group, groups, evaluation
   }
   try {
     if (!activity) {
-      const doc = await get(`${root}report/progress/index.php?course=${encodeURIComponent(courseId)}`);
-      const options = [...doc.querySelectorAll('select[name="group"] option')];
-      const found = groups.map(code => ({ code, id: options.find(o => text(o) === code)?.value }));
+      // The group selector service lists only the groups the user can see (all for supervisors,
+      // their own for facilitators); the progress report dropdown is the fallback for older Moodles.
+      let options = [];
+      try {
+        const sesskey = document.documentElement.innerHTML.match(/"sesskey"\s*:\s*"([a-zA-Z0-9]+)"/)?.[1];
+        if (!sesskey) throw new Error('sesskey');
+        const response = await fetch(`${root}lib/ajax/service.php?sesskey=${sesskey}&info=core_group_get_groups_for_selector`, {
+          method: 'POST', credentials: 'same-origin',
+          body: JSON.stringify([{ index: 0, methodname: 'core_group_get_groups_for_selector', args: { courseid: Number(courseId) } }]),
+        });
+        options = ((await response.json())[0]?.data?.groups || []).map(g => ({ code: g.name.trim(), id: String(g.id) }));
+      } catch {}
+      if (!options.length) {
+        const doc = await get(`${root}report/progress/index.php?course=${encodeURIComponent(courseId)}`);
+        options = [...doc.querySelectorAll('select[name="group"] option')].map(o => ({ code: text(o), id: o.value }));
+      }
+      const found = groups.map(code => ({ code, id: options.find(o => o.code === code)?.id }));
       if (found.some(g => !g.id)) throw new Error('Não foi possível identificar todos os grupos deste curso');
       return { groups: found };
     }
@@ -142,7 +164,7 @@ export async function readMoodle({ courseId, activity, group, groups, evaluation
     url.searchParams.set('id', activity.activityId);
     url.searchParams.set('group', group.id);
     if (type === 'assign') {
-      for (const [key, value] of Object.entries({ action: 'grading', filter: 'all', perpage: '100', tifirst: '', tilast: '' })) url.searchParams.set(key, value);
+      for (const [key, value] of Object.entries({ action: 'grading', filter: 'all', status: '', perpage: '100', tifirst: '', tilast: '' })) url.searchParams.set(key, value);
     } else if (type === 'quiz') {
       for (const [key, value] of Object.entries({ mode: 'overview', attempts: 'enrolled_any', pagesize: '100', onlygraded: '0', tifirst: '', tilast: '' })) url.searchParams.set(key, value);
     }
@@ -156,11 +178,19 @@ export async function readMoodle({ courseId, activity, group, groups, evaluation
       visited.add(next);
       const doc = await get(next);
       const widgets = evaluations && type === 'assign' ? pdfWidgets(doc) : [];
-      const selected = doc.querySelector('select[name="group"]')?.value;
-      const widget = text(doc.querySelector('.groupsearchwidget'));
-      if (selected !== String(group.id) && !widget.split(/\s+/).includes(group.code)) throw new Error('Filtro de grupo não confirmado');
+      if (!groupConfirmed(doc)) throw new Error('Filtro de grupo não confirmado');
+      // Moodle 4.5 keeps each user's last status filter (e.g. "Requer notas") unless `status=` is sent.
+      const status = doc.querySelector('input[type="hidden"][name="status"]')?.value;
+      if (type === 'assign' && status && new URL(status, root).searchParams.get('status')) throw new Error('Filtro de situação incompleto');
       if (type === 'diary') {
-        const entries = [...doc.querySelectorAll('table.diaryuserentry[id^="entry-"]')];
+        // With the "Mostrar 'sem registro'" preference, users without an entry get placeholder tables
+        // reading "Nenhum registro" and no feedback form; they are not records.
+        const all = [...doc.querySelectorAll('table.diaryuserentry[id^="entry-"]')];
+        const placeholder = new Set(all.map(entry => entry.id).filter(id => {
+          const tables = all.filter(entry => entry.id === id);
+          return !tables.some(entry => entry.querySelector('textarea[name^="c"], .promptentry')) && tables.some(entry => /Nenhum registro|No entry/i.test(text(entry)));
+        }));
+        const entries = all.filter(entry => !placeholder.has(entry.id));
         const submissionDates = new Map(entries.filter(entry => !entry.querySelector('textarea[name^="c"]')).map(entry => [entry.id.replace('entry-', ''), timestamp(entry)]));
         // Presence of an entry proves a record; absence alone is not a negative result.
         for (const entry of entries) {
@@ -176,7 +206,7 @@ export async function readMoodle({ courseId, activity, group, groups, evaluation
           }
           if (/^\d+$/.test(userId) && !records.some(r => r.userId === userId)) records.push({ userId, name: '', status: 'recorded', evidence: 'Registro no diário', submittedAt });
         }
-        if (!entries.length && !doc.body.id.includes('diary-report')) throw new Error('Relatório do diário não reconhecido');
+        if (!all.length && !doc.body.id.includes('diary-report')) throw new Error('Relatório do diário não reconhecido');
       } else if (type === 'assign' && !doc.querySelector('#submissions') && doc.body.id === 'page-mod-assign-grading' && /^(Nada a ser mostrado|Nothing to display)$/.test(text(doc.querySelector('.gradingtable > .alert')))) {
         // Moodle replaces the table with this notice when the confirmed group has no participants (e.g. restricted recovery tasks).
       } else {

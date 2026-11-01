@@ -7,10 +7,20 @@ a lista oficial RNP. O código PMMFC042 é duplicado na origem; usar courseId.
 
 ## Fontes verificadas
 
-- PHILA: POST `/homepage/procurar-dados-da-homepage`, catálogo da supervisão.
-- Moodle: `/cepm/report/progress/index.php?course=…` fornece opções de grupos,
-  mesmo com conclusão desativada. IDs de grupo variam por curso.
-- Tarefa: `mod/assign/view.php`, action=grading, group explícito, filter=all.
+- PHILA: POST `/homepage/procurar-dados-da-homepage`. Supervisores recebem
+  `homepageSupervisor.gruposDeTurma` (nome “… / PM1_121”, linkMoodle, tutores);
+  facilitadores (tutores a distância) recebem `homepageTAD.gruposDeTurmaAbertas`
+  (nomeGrupo no mesmo formato, idGrupo, linkMoodle). Turmas de formação de tutores
+  apontam para outro Moodle e ficam fora do catálogo.
+- Moodle: o serviço `core_group_get_groups_for_selector` lista os grupos visíveis
+  ao usuário (todos para o supervisor, só os próprios para o facilitador). O
+  seletor de `/cepm/report/progress/index.php?course=…` é o fallback; facilitadores
+  não o recebem. IDs de grupo variam por curso.
+- Atividades: `core_courseformat_get_state` lista todos os módulos acessíveis; a
+  página do curso do facilitador não exibe todos os links (4 das 12 atividades
+  coletadas em PMMFC003).
+- Tarefa: `mod/assign/view.php`, action=grading, group explícito, filter=all e
+  status= (vazio = “Todos” no Moodle 4.5).
 - Questionário: `mod/quiz/report.php`, mode=overview, attempts=enrolled_any,
   onlygraded=0. Ler todas as páginas e considerar múltiplas tentativas.
 - Diário: `mod/diary/report.php`, group explícito, tabelas diaryuserentry.
@@ -37,13 +47,24 @@ a lista oficial RNP. O código PMMFC042 é duplicado na origem; usar courseId.
   completo do Moodle, então o ID não mudou nenhum resultado. A maior parte dos “não
   localizados” eram convidados (guest_…) com nome abreviado; o nome parcial único
   reduziu os não localizados de 82 para 28 alunos nas 8 turmas com sessões.
+- Visão do facilitador (16/10/2026, “acessar como” o tutor de PM1_121 em
+  PMMFC003): grupos aparecem como texto “Grupos separados: PM1_121”, sem seletor.
+  Com as correções, as 12 leituras Moodle e a coleta RNP (8 sessões, 28 presenças,
+  2 relatórios de engajamento) coincidiram com as do supervisor para a mesma turma.
+  A visão do PHILA do facilitador não pôde ser aberta: o “acessar como” só vale no
+  Moodle, então o bloco homepageTAD foi conferido apenas no formato.
 
 ## Armadilhas observadas
 
 - Moodle preenche tabelas até o limite solicitado com linhas vazias; 100 linhas
   HTML podem representar apenas 25 alunos. Identificar links de usuário reais.
 - Filtro de status persistido na sessão pode ocultar alunos. Consultar explicitamente
-  todos os envios/tentativas e confirmar o grupo retornado.
+  todos os envios/tentativas e confirmar o grupo retornado. No Moodle 4.5 a tarefa
+  ignora filter=all e mantém o último status escolhido pelo usuário (ex.: “Enviada”
+  ou “Requer notas”); só `status=` mostra todos. Até 10/2026 o supervisor via 22 de
+  25 alunos em PM1_121 na tarefa 1756, e as recuperações pareciam vazias.
+- Diário com a preferência “Mostrar 'sem registro'” inclui tabelas “Nenhum
+  registro” para quem não escreveu; elas não são registros.
 - Não diagnosticar indisponibilidade após apenas 10 s. Leituras Moodle têm timeout
   de 45 s incluindo corpo e uma repetição. RNP ainda requer melhorias de timeout
   do corpo, repetição, paginação completa e restauração do grupo selecionado.
@@ -51,9 +72,10 @@ a lista oficial RNP. O código PMMFC042 é duplicado na origem; usar courseId.
   guia Moodle; sem ela, a extensão abre uma em segundo plano. O aviso de sessão
   só deve aparecer quando o Moodle redireciona para o login.
 - Questionário sem questões publicadas não é evidência de pendência do aluno.
-- Tarefa com acesso restrito (ex.: recuperação) pode não listar ninguém no grupo:
-  a página de avaliação mostra "Nada a ser mostrado" no lugar de #submissions.
-  Com o grupo confirmado, é consulta válida com zero registros, não falha.
+- Tarefa sem ninguém na listagem mostra "Nada a ser mostrado" no lugar de
+  #submissions. Com o grupo e o status “Todos” confirmados, é consulta válida com
+  zero registros, não falha. (Os casos de recuperação vistos antes vinham do filtro
+  de status persistido, acima.)
 - Dados privados ficam apenas no armazenamento local da extensão. Não incluir
   payloads, relatórios nominais, cookies ou links assinados em arquivos de teste.
 

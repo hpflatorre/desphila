@@ -112,7 +112,7 @@ document.querySelector("#discover").addEventListener("click", async (event) => {
   const button = event.currentTarget;
   const output = document.querySelector("#result");
   button.disabled = true;
-  output.textContent = "Lendo o catálogo de supervisão…";
+  output.textContent = "Lendo as turmas de supervisão e facilitação…";
 
   try {
     const result = await chrome.runtime.sendMessage({ type: "DISCOVER_PHILA_COURSES" });

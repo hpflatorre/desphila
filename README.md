@@ -1,7 +1,8 @@
 # Relatórios PHILA
 
 Extensão Chrome Manifest V3 para consolidar atividades das turmas selecionadas
-pelo operador no PHILA, Moodle e ConferênciaWeb/RNP.
+pelo operador no PHILA, Moodle e ConferênciaWeb/RNP. Funciona para supervisores
+e facilitadores: a lista de turmas vem do papel da conta no PHILA.
 
 Projeto independente e não oficial, disponibilizado para auditoria técnica. Não
 é mantido nem endossado pela UFMG, Nescon, Moodle, RNP ou WhatsApp. Consulte
@@ -20,7 +21,8 @@ coleta manualmente. Nenhuma coleta é habilitada sem ao menos uma turma marcada.
 - manifesto e permissões mínimas dos três sistemas;
 - verificação de sessões abertas;
 - configuração dos dez grupos;
-- descoberta e armazenamento local do catálogo PHILA;
+- descoberta e armazenamento local do catálogo PHILA (turmas de supervisão e de
+  facilitação);
 - inventário das atividades avaliáveis nos cursos Moodle;
 - seleção persistente de um curso por execução do relatório;
 - tela consolidada com atividades e grupos do curso selecionado;
@@ -34,6 +36,10 @@ coleta manualmente. Nenhuma coleta é habilitada sem ao menos uma turma marcada.
 - nenhuma credencial ou informação real de aluno armazenada no código.
 
 ## Uso
+
+Supervisores veem todas as turmas que supervisionam; facilitadores veem as turmas
+que acompanham, e o Moodle só mostra a eles os próprios grupos. O cabeçalho do
+relatório indica “Supervisão” ou “Facilitação”.
 
 Mapeie turmas e atividades, selecione um curso e abra o relatório. Use **Coletar
 atividades** para preencher a matriz dos dez grupos. Mantenha a aba do relatório
@@ -80,7 +86,7 @@ Cada turma possui campos locais para nome do contato e telefone com DDI/DDD. O
 contato é reaproveitado nos demais cursos da mesma turma. O botão **Abrir mensagem
 no WhatsApp** usa o link universal oficial `wa.me`, permitindo continuar no
 aplicativo instalado ou no navegador. A extensão não envia a mensagem: o
-supervisor deve conferir e confirmar o envio. A mensagem contém curso, turma,
+usuário deve conferir e confirmar o envio. A mensagem contém curso, turma,
 alunos, atividades e situações pendentes; a última linha registra a data e hora
 da atualização dos dados. Números inválidos são bloqueados. Mensagens acima de
 8.000 caracteres são copiadas para a área de transferência e a conversa é aberta

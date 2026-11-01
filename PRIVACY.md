@@ -4,9 +4,9 @@
 
 ## Finalidade
 
-Esta extensão consolida, para supervisores autorizados, informações de turmas,
-atividades, notas, feedbacks e presenças disponíveis no PHILA/Moodle e na
-ConferênciaWeb/RNP. Ela funciona no navegador do próprio usuário autenticado.
+Esta extensão consolida, para supervisores e facilitadores autorizados,
+informações de turmas, atividades, notas, feedbacks e presenças disponíveis no
+PHILA/Moodle e na ConferênciaWeb/RNP. Ela funciona no navegador do próprio usuário autenticado.
 
 ## Dados acessados
 
@@ -19,7 +19,7 @@ Conforme as permissões da conta autenticada, a extensão pode acessar:
 - indicadores do relatório de engajamento do RNP (tempo online, de fala, de
   câmera e ausente; mensagens, mãos levantadas, reações, respostas a enquetes e
   pontuação de atividade), obtidos do armazenamento de dados da ConferênciaWeb;
-- nomes e telefones de contatos de turma informados pelo supervisor.
+- nomes e telefones de contatos de turma informados pelo usuário.
 
 Credenciais, senhas e cookies não são incluídos no código ou nos pacotes de
 distribuição. A extensão reutiliza apenas a sessão já autenticada no navegador.
@@ -41,7 +41,7 @@ WhatsApp. A extensão não aperta o botão final de envio da mensagem.
 
 O projeto não transmite dados ao desenvolvedor. Dados somente saem do navegador
 quando o usuário abre o WhatsApp ou salva/compartilha manualmente um relatório.
-Supervisores devem conferir destinatários e observar as normas institucionais de
+Supervisores e facilitadores devem conferir destinatários e observar as normas institucionais de
 proteção de dados ao manipular esses arquivos e mensagens.
 
 ## Retenção e exclusão
