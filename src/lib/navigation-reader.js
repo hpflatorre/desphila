@@ -2,6 +2,13 @@
 export async function resolveStudentDestination({ activity, group, userId }) {
   const root = `${location.origin}/cepm/`;
   const type = activity.type;
+  // Supervisors get a group dropdown or search widget; a single-group facilitator sees "Grupos separados: PM1_121".
+  const groupConfirmed = doc => {
+    const select = doc.querySelector('select[name="group"]');
+    if (select) return select.value === String(group.id);
+    if (doc.querySelector('.groupsearchwidget')?.textContent.split(/\s+/).includes(group.code)) return true;
+    return doc.querySelector('.groupselector')?.textContent.replace(/\s+/g, ' ').split(':').pop().trim() === group.code;
+  };
   if (!['assign', 'quiz', 'diary', 'wiki'].includes(type) || !/^\d+$/.test(String(userId))) throw new Error('Destino inválido');
   if (type === 'wiki') {
     // A collaborative wiki has no per-student page; open the group's edit history instead.
@@ -12,14 +19,14 @@ export async function resolveStudentDestination({ activity, group, userId }) {
     if (!response.ok) throw new Error(`Moodle respondeu HTTP ${response.status}`);
     const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
     if (/\/login\/|\/sso\//i.test(response.url) || doc.querySelector('#login')) throw new Error('Sessão expirada. Abra o Moodle autenticado.');
-    if (doc.querySelector('select[name="group"]')?.value !== String(group.id)) throw new Error('Filtro de turma não confirmado');
+    if (!groupConfirmed(doc)) throw new Error('Filtro de turma não confirmado');
     const pageId = [...doc.querySelectorAll('a[href*="/mod/wiki/"][href*="pageid="]')].map(a => new URL(a.getAttribute('href'), root).searchParams.get('pageid')).find(id => /^\d+$/.test(id || ''));
     return { url: pageId ? `${root}mod/wiki/history.php?pageid=${pageId}` : view.href, individual: false };
   }
   const url = new URL(`mod/${type}/${type === 'assign' ? 'view' : 'report'}.php`, root);
   url.searchParams.set('id', activity.activityId);
   if (group?.id) url.searchParams.set('group', group.id);
-  const params = type === 'assign' ? { action: 'grading', filter: 'all', perpage: '100', tifirst: '', tilast: '' }
+  const params = type === 'assign' ? { action: 'grading', filter: 'all', status: '', perpage: '100', tifirst: '', tilast: '' }
     : type === 'quiz' ? { mode: 'overview', attempts: 'enrolled_any', pagesize: '100', onlygraded: '0', tifirst: '', tilast: '' } : {};
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
   const fallback = url.href;
@@ -31,8 +38,7 @@ export async function resolveStudentDestination({ activity, group, userId }) {
     const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
     if (/\/login\/|\/sso\//i.test(response.url) || doc.querySelector('#login')) throw new Error('Sessão expirada. Abra o Moodle autenticado.');
     if (doc.querySelector('.alert-danger,.errorbox')) throw new Error('Moodle não disponibilizou a avaliação.');
-    if (group?.id && doc.querySelector('select[name="group"]')?.value !== String(group.id)
-      && !doc.querySelector('.groupsearchwidget')?.textContent.split(/\s+/).includes(group.code)) throw new Error('Filtro de turma não confirmado');
+    if (group?.id && !groupConfirmed(doc)) throw new Error('Filtro de turma não confirmado');
     if (type === 'diary') {
       const entry = doc.getElementById(`entry-${userId}`);
       if (entry) { url.hash = entry.id; return { url: url.href, individual: true }; }

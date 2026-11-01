@@ -22,8 +22,9 @@ async function load() {
     return;
   }
 
-  const { course, groups, availableGroups } = result;
+  const { course, groups, availableGroups, role } = result;
   moduleCode = course.moduleCode;
+  document.querySelector('header .eyebrow').textContent = role === 'facilitador' ? 'FACILITAÇÃO PMMFC' : 'SUPERVISÃO PMMFC';
   const selection = document.querySelector('#group-selection');
   selection.replaceChildren(...availableGroups.map(code => {
     const label = document.createElement('label'); const input = document.createElement('input');

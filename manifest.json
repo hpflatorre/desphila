@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "DesPhila: Desenrolador de Relatorios do PHILA",
   "version": "0.2.0",
-  "description": "Consolida atividades, feedbacks e presencas das turmas selecionadas pelo supervisor.",
+  "description": "Consolida atividades, feedbacks e presencas das turmas de supervisores e facilitadores.",
   "permissions": ["storage", "tabs", "scripting"],
   "icons": {
     "16": "assets/icon16.png",

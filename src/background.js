@@ -6,6 +6,7 @@ import { readMoodle } from './lib/moodle-reader.js';
 import { readFeedbackDetail } from './lib/feedback-reader.js';
 import { readPdfAnnotations, readPublishedPdf } from './lib/pdf-reader.js';
 import { normalizePdfAnnotations } from './lib/pdf-model.js';
+import { philaGroupRows } from "./lib/phila-catalog.js";
 
 const REQUEST_TIMEOUT_MS = 45_000;
 
@@ -121,40 +122,23 @@ async function discoverPhilaCourses() {
       }
 
       const payload = await response.json();
-      const rows = payload?.dados?.homepageSupervisor?.gruposDeTurma;
-      if (!Array.isArray(rows)) {
-        throw new Error("A lista de supervisão não foi encontrada no PHILA.");
-      }
-
-      return rows.flatMap((row) => {
-        const match = row.nome?.match(/^(PMMFC\d+).*\/\s*([A-Z][A-Z0-9_-]+)\b/i);
-        if (!match) return [];
-
-        const moodle = new URL(row.linkMoodle);
-        return [{
-          groupRecordId: row.id,
-          philaClassId: row.idTurma,
-          moduleCode: match[1],
-          groupCode: match[2],
-          className: row.nome,
-          discipline: row.disciplina,
-          moodleUrl: moodle.href,
-          moodleCourseId: moodle.searchParams.get("id"),
-        }];
-      });
+      const { homepageSupervisor, homepageTAD } = payload?.dados || {};
+      return { homepageSupervisor, homepageTAD };
     },
   });
 
+  const rows = philaGroupRows(result, ORIGINS.moodle);
   const discoveredAt = new Date().toISOString();
-  const catalog = { discoveredAt, rows: result };
+  const catalog = { discoveredAt, rows };
   await chrome.storage.local.set({ philaCatalog: catalog });
 
   return {
     discoveredAt,
-    rowCount: result.length,
-    moduleCodeCount: new Set(result.map((row) => row.moduleCode)).size,
-    groupCount: new Set(result.map((row) => row.groupCode)).size,
-    courseCount: new Set(result.map((row) => row.moodleCourseId)).size,
+    rowCount: rows.length,
+    roles: [...new Set(rows.map((row) => row.role))],
+    moduleCodeCount: new Set(rows.map((row) => row.moduleCode)).size,
+    groupCount: new Set(rows.map((row) => row.groupCode)).size,
+    courseCount: new Set(rows.map((row) => row.moodleCourseId)).size,
   };
 }
 
@@ -167,8 +151,32 @@ async function inspectMoodleCourse(course, types) {
     return { ...course, error: `HTTP ${response.status}`, activities: [] };
   }
 
-  const documentCopy = new DOMParser().parseFromString(await response.text(), "text/html");
-  const activities = [...documentCopy.querySelectorAll('a[href*="/mod/"]')].flatMap((link) => {
+  const html = await response.text();
+  const documentCopy = new DOMParser().parseFromString(html, "text/html");
+  // The course state service lists every module the user can open, in course order. Facilitators'
+  // course pages do not render every activity, so the page links are only a fallback.
+  async function stateActivities() {
+    try {
+      const sesskey = html.match(/"sesskey"\s*:\s*"([a-zA-Z0-9]+)"/)?.[1];
+      if (!sesskey) return [];
+      const service = new URL(`../lib/ajax/service.php?sesskey=${sesskey}&info=core_courseformat_get_state`, response.url);
+      const reply = await fetch(service, {
+        method: "POST", credentials: "same-origin",
+        body: JSON.stringify([{ index: 0, methodname: "core_courseformat_get_state", args: { courseid: Number(course.courseId) } }]),
+      });
+      const data = (await reply.json())[0]?.data;
+      if (!data) return [];
+      const state = JSON.parse(data);
+      const modules = new Map(state.cm.map((cm) => [String(cm.id), cm]));
+      return state.section.flatMap((section) => section.cmlist).map((id) => modules.get(String(id)))
+        .filter((cm) => cm && types.includes(cm.module) && cm.uservisible !== false && cm.url)
+        .map((cm) => ({ type: cm.module, activityId: String(cm.id), name: cm.name.replace(/\s+/g, " ").trim(), url: new URL(cm.url, response.url).href }));
+    } catch {
+      return [];
+    }
+  }
+  const fromState = await stateActivities();
+  const activities = fromState.length ? fromState : [...documentCopy.querySelectorAll('a[href*="/mod/"]')].flatMap((link) => {
     const url = new URL(link.getAttribute("href"), response.url);
     const match = url.pathname.match(/\/mod\/([^/]+)\//);
     const type = match?.[1];
@@ -366,9 +374,12 @@ async function getSelectedCourse() {
     (item) => String(item.courseId) === String(selectedCourseId),
   );
   if (!course) throw new Error("Selecione um curso no popup da extensão.");
-  const availableGroups = [...new Set((philaCatalog?.rows || []).filter(row => String(row.moodleCourseId) === String(course.courseId)).map(row => row.groupCode))].sort();
+  const courseRows = (philaCatalog?.rows || []).filter(row => String(row.moodleCourseId) === String(course.courseId));
+  const availableGroups = [...new Set(courseRows.map(row => row.groupCode))].sort();
   const groups = (selectedGroupsByCourse?.[String(course.courseId)] || []).filter(code => availableGroups.includes(code));
-  return { course, groups, availableGroups };
+  // Catalogs saved before facilitator support have no role; they came from the supervisor list.
+  const role = courseRows.length && courseRows.every(row => row.role === 'facilitador') ? 'facilitador' : 'supervisor';
+  return { course, groups, availableGroups, role };
 }
 
 async function selectGroups(message) {

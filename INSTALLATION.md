@@ -28,5 +28,6 @@ separados e poderão gerar confusão.
 - Instale somente pacotes recebidos de uma fonte institucional confiável.
 - CSVs, ZIPs de feedback e mensagens podem conter dados pessoais de estudantes.
 - Confira a turma, os nomes e o destinatário antes de enviar uma mensagem.
-- A extensão lê apenas os dados permitidos pela conta autenticada do supervisor.
+- A extensão lê apenas os dados permitidos pela conta autenticada (supervisor ou
+  facilitador).
 

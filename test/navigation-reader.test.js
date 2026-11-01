@@ -44,3 +44,29 @@ test('resolve navegação no clique usando links da linha do aluno e fallback da
     }
   }
 });
+
+test('confirma a turma do facilitador pelo texto "Grupos separados" e pede todos os status', async () => {
+  const origin = 'https://ava.nescon.medicina.ufmg.br';
+  const original = { fetch: globalThis.fetch, DOMParser: globalThis.DOMParser, location: globalThis.location };
+  let groupText = 'Grupos separados: PM1_121';
+  const requested = [];
+  globalThis.location = { origin };
+  globalThis.fetch = async url => { requested.push(new URL(url)); return { ok: true, url: String(url), text: async () => '' }; };
+  globalThis.DOMParser = class { parseFromString() { return {
+    querySelector: selector => selector === '.groupselector' ? { textContent: groupText } : null,
+    querySelectorAll: () => [],
+    getElementById: () => null,
+  }; } };
+  try {
+    const args = { activity: { type: 'assign', activityId: '1756' }, group: { id: '1558', code: 'PM1_121' }, userId: '7' };
+    const result = await resolveStudentDestination(args);
+    assert.equal(result.individual, false);
+    assert.equal(requested[0].searchParams.get('status'), '');
+    groupText = 'Grupos separados: PM1_122';
+    await assert.rejects(resolveStudentDestination(args), /Filtro de turma não confirmado/);
+  } finally {
+    for (const [key, value] of Object.entries(original)) {
+      if (value === undefined) delete globalThis[key]; else globalThis[key] = value;
+    }
+  }
+});
